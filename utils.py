@@ -63,6 +63,7 @@ def get_validation_metric(model, dataloader, opt):
             image = image.cuda()
             input_op = input_op.cuda()
             program_len = program_lens[-1].cuda()
+            label = label.cuda()
 
         output = model([image, input_op, program_len])
         loss = losses_node(out=output, labels=label, time_steps=program_len+1)

@@ -38,6 +38,8 @@ opt.cuda = torch.cuda.is_available()
 os.makedirs(os.path.join(opt.output_path, opt.exp), exist_ok=True)
 os.makedirs(os.path.join(opt.output_path, opt.exp, 'saved_models'), exist_ok=True)
 
+torch.manual_seed(2022)
+
 #Initialize Dataset and dataloaders
 train_dataset = Image2NodeDataset('./data/train.json', './data/complete_index_sequence.json')
 dev_dataset = Image2NodeDataset('./data/dev.json', './data/complete_index_sequence.json')
@@ -56,7 +58,7 @@ if opt.cuda:
 
 optimizer = torch.optim.Adam(
     [para for para in image2node_net.parameters() if para.requires_grad],
-    weight_decay=opt.weight_decay,
+    weight_decay=opt.wt_decay,
     lr=opt.lr)
 
 runs = wandb.init(project="Image2Node", entity = "shrawan", name=f"{opt.exp}", reinit=True)
@@ -75,6 +77,7 @@ for epoch in range(opt.epoch, opt.n_epochs):
             image = image.cuda()
             input_op = input_op.cuda()
             program_len = program_lens[-1].cuda()
+            label = label.cuda()
 
         optimizer.zero_grad()
         output = image2node_net([image, input_op, program_len])
@@ -89,7 +92,7 @@ for epoch in range(opt.epoch, opt.n_epochs):
         
         # Print log
         sys.stdout.write(
-            "\r[Epoch %d/%d] [Batch %d/%d] [D loss: %f] Training loss: %f ETA: %s"
+            "\r[Epoch %d/%d] [Batch %d/%d] Training loss: %f ETA: %s"
             % (
                 epoch,
                 opt.n_epochs,
@@ -117,6 +120,7 @@ for epoch in range(opt.epoch, opt.n_epochs):
         torch.save({
             'epoch': epoch,
             'model_state': image2node_net.state_dict(),
+            'encoder_state':im_encoder.state_dict(),
             'best_val_loss': best_val_loss 
         }, "%s/%s/saved_models/best_model.pth" % (opt.output_path, opt.exp))
 
@@ -124,6 +128,7 @@ for epoch in range(opt.epoch, opt.n_epochs):
     # Save model checkpoints
     if epoch % opt.checkpoint_interval == 0:
         torch.save(image2node_net.state_dict(), "%s/%s/saved_models/image2node_net_%d.pth" % (opt.output_path, opt.exp, epoch))
+        torch.save(im_encoder.state_dict(), "%s/%s/saved_models/image_encoder_%d.pth" % (opt.output_path, opt.exp, epoch))
         torch.save(optimizer.state_dict(), "%s/%s/saved_models/Optimizer_%d.pth" % (opt.output_path, opt.exp, epoch))
 
 
