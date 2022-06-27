@@ -168,16 +168,16 @@ class Image2NodeNet(nn.Module):
         # Beam, dictionary, with elements as list. Each element of list
         # containing index of the selected output and the corresponding
         # probability.
-        batch_size = data.size()[1]
-        h = Variable(torch.zeros(1, batch_size, self.hd_sz)).cuda()
+        batch_size = data.size()[0]
+        h = Variable(torch.zeros(1, batch_size, self.hd_sz))
         # Last beams' data
         B = {0: {"input": input_op, "h": h}, 1: None}
         next_B = {}
-        x_f = self.encoder.encode(data[-1, :, 0:1, :, :])
+        x_f = self.encoder(data)
         x_f = x_f.view(1, batch_size, self.in_sz)
         # List to store the probs of last time step
         prev_output_prob = [
-            Variable(torch.ones(batch_size, self.num_draws)).cuda()
+            Variable(torch.ones(batch_size, self.input_op_sz))
         ]
         all_beams = []
         all_inputs = []
@@ -189,13 +189,11 @@ class Image2NodeNet(nn.Module):
                 input_op = B[b]["input"]
 
                 h = B[b]["h"]
-                input_op_rnn = self.relu(
-                    self.dense_input_op(input_op[:, 0, :]))
-                input_op_rnn = input_op_rnn.view(1, batch_size,
+                input_op_rnn = input_op[:,0,:].view(1, batch_size,
                                                  self.input_op_sz)
                 input = torch.cat((x_f, input_op_rnn), 2)
-                h, _ = self.rnn(input, h)
-                hd = self.relu(self.dense_fc_1(self.drop(h[0])))
+                out, h = self.rnn(input, h)
+                hd = self.relu(self.dense_fc_1(self.drop(out[0])))
                 dense_output = self.dense_output(self.drop(hd))
                 output = self.logsoftmax(dense_output)
                 # Element wise multiply by previous probabs
@@ -215,25 +213,25 @@ class Image2NodeNet(nn.Module):
             # print (next_beams_prob)
             current_beams = {
                 "parent":
-                next_beams_index.data.cpu().numpy() // (self.num_draws),
-                "index": next_beams_index % (self.num_draws)
+                next_beams_index.data.cpu().numpy() // (self.input_op_sz),
+                "index": next_beams_index % (self.input_op_sz)
             }
             # print (next_beams_index % (self.num_draws))
-            next_beams_index %= (self.num_draws)
+            next_beams_index %= (self.input_op_sz)
             all_beams.append(current_beams)
 
             # Update previous output probabilities
-            temp = Variable(torch.zeros(batch_size, 1)).cuda()
+            temp = Variable(torch.zeros(batch_size, 1))
             prev_output_prob = []
             for i in range(w):
                 for index in range(batch_size):
                     temp[index, 0] = next_beams_prob[index, i]
-                prev_output_prob.append(temp.repeat(1, self.num_draws))
+                prev_output_prob.append(temp.repeat(1, self.input_op_sz))
             # hidden state for next step
             B = {}
             for i in range(w):
                 B[i] = {}
-                temp = Variable(torch.zeros(h.size())).cuda()
+                temp = Variable(torch.zeros(h.size()))
                 for j in range(batch_size):
                     temp[0, j, :] = next_B[current_beams["parent"][j, i]]["h"][
                         0, j, :]
@@ -242,10 +240,11 @@ class Image2NodeNet(nn.Module):
             # one_hot for input to the next step
             for i in range(w):
                 arr = Variable(
-                    torch.zeros(batch_size, self.num_draws).scatter_(
+                    torch.zeros(batch_size, self.input_op_sz).scatter_(
                         1, next_beams_index[:, i:i + 1].data.cpu(),
-                        1.0)).cuda()
+                        1.0))
                 B[i]["input"] = arr.unsqueeze(1)
             all_inputs.append(B)
 
         return all_beams, next_beams_prob, all_inputs
+
